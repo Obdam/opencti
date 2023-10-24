@@ -15,6 +15,8 @@ import traceback
 from dataclasses import dataclass, field
 from threading import Thread
 from typing import Any, Dict, List, Optional, Union
+from requests.auth import AuthBase
+import importlib.util
 
 import pika
 import yaml
@@ -84,6 +86,7 @@ class Consumer(Thread):  # pylint: disable=too-many-instance-attributes
     log_level: str
     ssl_verify: Union[bool, str] = False
     json_logging: bool = False
+    auth: AuthBase = None
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -93,6 +96,7 @@ class Consumer(Thread):  # pylint: disable=too-many-instance-attributes
             log_level=self.log_level,
             ssl_verify=self.ssl_verify,
             json_logging=self.json_logging,
+            auth=self.auth
         )
         self.queue_name = self.connector["config"]["push"]
         self.pika_credentials = pika.PlainCredentials(
@@ -434,6 +438,29 @@ class Worker:  # pylint: disable=too-few-public-methods, too-many-instance-attri
         self.opencti_json_logging = get_config_variable(
             "OPENCTI_JSON_LOGGING", ["opencti", "json_logging"], config, False, True
         )
+
+        # Load API custom authentication if available
+        self.opencti_auth_file_path = get_config_variable(
+            "OPENCTI_AUTH_FILE_PATH", 
+            ["opencti", "auth_file_path"], 
+            config,
+            False,
+            None,
+            False
+        )
+        self.opencti_auth_class = get_config_variable(
+            "OPENCTI_AUTH_CLASS", 
+            ["opencti", "auth_class"], 
+            config,
+            False,
+            None,
+            False
+        )
+        if self.opencti_auth_file_path and self.opencti_auth_class is not None:
+            self.auth = self.load_authentication(self.opencti_auth_file_path, self.opencti_auth_file_path)
+        else:
+            self.auth = None
+
         # Load worker config
         self.log_level = get_config_variable(
             "WORKER_LOG_LEVEL", ["worker", "log_level"], config
@@ -478,6 +505,7 @@ class Worker:  # pylint: disable=too-few-public-methods, too-many-instance-attri
             log_level=self.log_level,
             ssl_verify=self.opencti_ssl_verify,
             json_logging=self.opencti_json_logging,
+            auth=self.auth,
         )
 
         # Initialize variables
@@ -514,6 +542,7 @@ class Worker:  # pylint: disable=too-few-public-methods, too-many-instance-attri
                                 self.log_level,
                                 self.opencti_ssl_verify,
                                 self.opencti_json_logging,
+                                self.auth,
                             )
                             self.consumer_threads[queue].start()
                     else:
@@ -525,6 +554,7 @@ class Worker:  # pylint: disable=too-few-public-methods, too-many-instance-attri
                             self.log_level,
                             self.opencti_ssl_verify,
                             self.opencti_json_logging,
+                            self.auth,
                         )
                         self.consumer_threads[queue].start()
 
@@ -556,6 +586,32 @@ class Worker:  # pylint: disable=too-few-public-methods, too-many-instance-attri
                 error_msg = traceback.format_exc()
                 self.api.log("error", error_msg)
                 time.sleep(60)
+    
+    def load_authentication(self, file_path: str, class_name: str) -> AuthBase:
+        """
+        Dynamically loads an AuthBase class from a given module file in the 'auth' subfolder.
+
+        Parameters:
+        - file_path (str): The path to the file containing the AuthBase class.
+        - class_name (str): The name of the AuthBase class to be loaded from the module.
+
+        Returns:
+        - AuthBase: The loaded authentication class. This class will be a subclass of `AuthBase`.
+        """
+        if not class_name:
+            raise ValueError("The class_name parameter is not provided.")
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"{file_path} does not exists. Please provide a path with an existing authentication.")
+
+        spec = importlib.util.spec_from_file_location("auth_module", file_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        
+        auth_class = getattr(module, class_name)
+        if not issubclass(auth_class, AuthBase):
+            raise TypeError(f"{class_name} is not a subclass of AuthBase")
+        
+        return auth_class
 
 
 if __name__ == "__main__":
