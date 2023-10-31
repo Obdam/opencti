@@ -35,15 +35,14 @@ class GCPServerlessAuth(AuthBase):
 
     def __call__(self, r):
         """Attach an API token to a custom auth header."""
-
         r.headers = {
             "User-Agent": "pycti/" + __version__,
             "Authorization": "Bearer " + self.opencti_token,
             "X-Serverless-Authorization": "Bearer " + self.gcp_serverless_token,
         }
-
+        r.headers[]
         return r
-    
+    #TODO: make a reference to the app context.
     def retrieve_gcp_serverless_token(self):
         auth_req = google.auth.transport.requests.Request()
         return google.oauth2.id_token.fetch_id_token(auth_req, self.opencti_url)

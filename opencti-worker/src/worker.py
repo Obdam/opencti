@@ -457,7 +457,8 @@ class Worker:  # pylint: disable=too-few-public-methods, too-many-instance-attri
             False
         )
         if self.opencti_auth_file_path and self.opencti_auth_class is not None:
-            self.auth = self.load_authentication(self.opencti_auth_file_path, self.opencti_auth_file_path)
+            self.auth = self.load_authentication(self.opencti_auth_file_path, self.opencti_auth_class)
+            print(self.auth)
         else:
             self.auth = None
 
@@ -607,7 +608,11 @@ class Worker:  # pylint: disable=too-few-public-methods, too-many-instance-attri
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         
-        auth_class = getattr(module, class_name)
+        if not hasattr(module, class_name):
+            raise AttributeError(f"Module loaded from {file_path} does not have a class named {class_name}")
+        else:
+            auth_class = getattr(module, class_name)
+        
         if not issubclass(auth_class, AuthBase):
             raise TypeError(f"{class_name} is not a subclass of AuthBase")
         
