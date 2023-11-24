@@ -26,7 +26,9 @@ from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from pika.adapters.blocking_connection import BlockingChannel
 from prometheus_client import start_http_server
+from pycti import __version__
 from pycti import OpenCTIApiClient
+from pycti import OpenCTIApiAuthentication
 from pycti.connector.opencti_connector_helper import (
     create_mq_ssl_context,
     get_config_variable,
@@ -86,13 +88,17 @@ class Consumer(Thread):  # pylint: disable=too-many-instance-attributes
     log_level: str
     ssl_verify: Union[bool, str] = False
     json_logging: bool = False
+<<<<<<< Updated upstream
     auth: AuthBase = None
+=======
+    auth: OpenCTIApiAuthentication = None
+>>>>>>> Stashed changes
 
     def __post_init__(self) -> None:
         super().__init__()
         self.api = OpenCTIApiClient(
             url=self.opencti_url,
-            token=self.opencti_token,
+            auth=self.auth,
             log_level=self.log_level,
             ssl_verify=self.ssl_verify,
             json_logging=self.json_logging,
@@ -293,9 +299,7 @@ class Consumer(Thread):  # pylint: disable=too-many-instance-attributes
         except RequestException as ex:
             error = str(ex)
             bundles_request_error_counter.add(1, {"origin": "opencti-worker"})
-            self.api.log(
-                "error", "A connection error occurred: {{ " + error + " }}"
-            )
+            self.api.log("error", "A connection error occurred: {{ " + error + " }}")
             self.api.log(
                 "info",
                 "Message (delivery_tag="
@@ -466,6 +470,16 @@ class Worker:  # pylint: disable=too-few-public-methods, too-many-instance-attri
         self.log_level = get_config_variable(
             "WORKER_LOG_LEVEL", ["worker", "log_level"], config
         )
+        # Custom authentication
+        self.custom_headers = get_config_variable(
+            "CUSTOM_HEADERS", ["opencti", "custom_headers"], config
+        )
+        if self.custom_headers is not None:
+            self.auth = OpenCTIApiAuthentication(
+                bearer_token=self.opencti_token,
+                pycti_version=__version__,
+            )
+            self.auth.headers.update(self.custom_headers)
         # Telemetry
         self.telemetry_enabled = get_config_variable(
             "WORKER_TELEMETRY_ENABLED",
@@ -503,6 +517,7 @@ class Worker:  # pylint: disable=too-few-public-methods, too-many-instance-attri
         self.api = OpenCTIApiClient(
             url=self.opencti_url,
             token=self.opencti_token,
+            auth=self.auth,
             log_level=self.log_level,
             ssl_verify=self.opencti_ssl_verify,
             json_logging=self.opencti_json_logging,
